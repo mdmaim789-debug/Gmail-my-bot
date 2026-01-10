@@ -22,7 +22,7 @@ from aiogram.utils import executor
 # ==========================================
 # CONFIGURATION
 # ==========================================
-API_TOKEN = '7926162472:AAFuN87EtvQRcM-YiZhaiBIbCKYjvdkZyUk' 
+API_TOKEN = '8452574132:AAHQyZ_sHMZbfVASEXSyhUuK9wCwWtTCCOI' 
 ADMIN_IDS = [6375918223, 6337650436]
 PAYOUT_CHANNEL_ID = -1003676517448
 LOG_CHANNEL_ID = -1003676517448
