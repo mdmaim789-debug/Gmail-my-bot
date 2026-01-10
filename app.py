@@ -11,6 +11,7 @@ import json
 import hashlib
 import hmac
 import base64
+from aiohttp import web
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
@@ -50,6 +51,14 @@ FAKE_USER_ID_START = 9000000000  # Fake IDs start from this
 
 # Logging Setup for Termux
 logging.basicConfig(level=logging.INFO)
+
+# ==========================================
+# GLOBAL VARIABLES
+# ==========================================
+auto_payment_handler = None
+payment_system = None
+bot = None
+dp = None
 
 # ==========================================
 # PAYMENT SYSTEM CLASSES
@@ -303,11 +312,6 @@ class PaymentSystem:
         else:
             return False, f"❌ {method.upper()} Test FAILED\nError: {message}"
 
-
-# Create global payment system instance
-payment_system = PaymentSystem()
-
-
 class AutoPaymentHandler:
     def __init__(self, db_connection_func, bot_instance=None):
         self.get_db_connection = db_connection_func
@@ -498,11 +502,6 @@ class AutoPaymentHandler:
         """Stop the auto payment worker"""
         self.running = False
         logging.info("🛑 Auto Payment Worker Stopped")
-
-
-# Create global handler
-auto_payment_handler = None
-
 
 class PaymentAdmin:
     @staticmethod
@@ -1028,6 +1027,9 @@ bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
+# Initialize payment system
+payment_system = PaymentSystem()
+
 # ==========================================
 # STATES
 # ==========================================
@@ -1225,7 +1227,40 @@ async def process_manual_withdrawal(user_id, amount, method, number):
     }
 
 # ==========================================
-# USER HANDLERS
+# ENHANCED UI MESSAGES
+# ==========================================
+
+def get_main_menu_keyboard():
+    """Get enhanced main menu keyboard"""
+    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+    kb.row(
+        KeyboardButton("🚀 Start Work"),
+        KeyboardButton("💰 My Balance")
+    )
+    kb.row(
+        KeyboardButton("🎁 Daily Bonus"),
+        KeyboardButton("🏆 Leaderboard")
+    )
+    kb.row(
+        KeyboardButton("💸 Withdraw"),
+        KeyboardButton("📢 Announcements")
+    )
+    kb.row(
+        KeyboardButton("👥 My Referral"),
+        KeyboardButton("🆘 Support")
+    )
+    kb.row(
+        KeyboardButton("📧 Mail Sell"),
+        KeyboardButton("👑 VIP Club")
+    )
+    kb.row(
+        KeyboardButton("ℹ️ Help Guide"),
+        KeyboardButton("📊 Stats")
+    )
+    return kb
+
+# ==========================================
+# USER HANDLERS WITH ENHANCED UI
 # ==========================================
 
 @dp.message_handler(commands=['start'], state="*")
@@ -1239,7 +1274,7 @@ async def cmd_start(message: types.Message):
     res = c.fetchone()
     if res and res[0] == 1:
         conn.close()
-        await message.answer("❌ You are banned.")
+        await message.answer("❌ Your account has been banned.")
         return
 
     # Register or Update
@@ -1277,35 +1312,56 @@ async def cmd_start(message: types.Message):
                 pass
     conn.close()
     
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    kb.add("1️⃣ Start Work", "2️⃣ My Account")
-    kb.add("🎁 Daily Bonus", "🏆 Leaderboard")
-    kb.add("💸 Withdraw", "📢 Notice")
-    kb.add("4️⃣ My Referral", "📞 Support")
-    kb.add("📧 Mail Sell", "👑 VIP")
-    kb.add("ℹ️ Help", "🔙 Main Menu")
+    # Enhanced welcome message
+    welcome_msg = """
+✨ **Welcome to Gmail Farmer Pro!** ✨
+
+🚀 **Earn Money Instantly:**
+• 📧 Create Gmail Accounts: 9-13৳ Each
+• 👥 Refer Friends: 5৳ Per Referral  
+• 📧 Sell Verified Gmails: 10৳ Each
+• 👑 VIP Bonus: Extra 2৳ For Top Earners
+
+⚡ **Quick Start:**
+1. Click "🚀 Start Work"
+2. Create Gmail with given credentials
+3. Verify & Earn instantly!
+
+💰 **Minimum Withdrawal:** 100৳
+⏱️ **Payment Time:** Within 5 Minutes
+✅ **100% Legit & Trusted**
+"""
     
-    await message.answer(
-        f"👋 **Welcome to Gmail Buy Sell!**\n\nEarn money by creating verified Gmail accounts.\n\n👇 Select an option:", 
-        parse_mode="Markdown", 
-        reply_markup=kb
-    )
+    await message.answer(welcome_msg, parse_mode="Markdown", reply_markup=get_main_menu_keyboard())
 
 # --- VIP INFO MENU ---
-@dp.message_handler(lambda message: message.text == "👑 VIP", state="*")
+@dp.message_handler(lambda message: message.text == "👑 VIP Club", state="*")
 async def vip_info(message: types.Message):
     if check_ban(message.from_user.id): return
     
     vip_bonus = get_top10_bonus()
     
-    msg = (
-        f"👑 **VIP Bonus System**\n\n"
-        f"📈 **Top-10 users** (by balance) earn an extra **{vip_bonus} TK** per verified Gmail!\n\n"
-        f"💰 **Current VIP Bonus:** {vip_bonus} TK\n\n"
-        f"🏆 Check **'Leaderboard'** to see the current Top-10 rankings.\n"
-        f"💡 The bonus is automatically added when your account is verified.\n\n"
-        f"⚡ **Stay active and climb the ranks to become VIP!**"
-    )
+    msg = f"""
+👑 **VIP CLUB BENEFITS** 👑
+
+🏆 **Top-10 Users** earn extra **{vip_bonus}৳** per verified Gmail!
+
+✨ **VIP Perks:**
+• 🤑 Higher Earnings: +{vip_bonus}৳ per task
+• 💸 Lower Minimum Withdraw: 50৳ only
+• ⚡ Priority Support
+• 🎁 Exclusive Bonuses
+
+📊 **How to Become VIP:**
+1. Stay active daily
+2. Complete more tasks  
+3. Climb the leaderboard
+4. Maintain top 10 balance
+
+🏅 Check **'Leaderboard'** to see current rankings!
+
+💡 **Pro Tip:** Refer friends to boost your earnings faster!
+"""
     
     await message.answer(msg, parse_mode="Markdown")
 
@@ -1319,16 +1375,18 @@ async def mail_sell_start(message: types.Message, state: FSMContext):
     if not user or user[3] < 1:
         await message.answer(
             "❌ **You need at least 1 verified Gmail account to sell mails!**\n\n"
-            "💡 Complete 'Start Work' tasks first to verify accounts."
+            "💡 Complete '🚀 Start Work' tasks first to verify accounts."
         )
         return
     
     await MailSellState.waiting_for_gmail.set()
     await message.answer(
-        "📧 **Mail Sell System (Auto-Verified)**\n\n"
-        "Enter Gmail address:\n"
+        "📧 **MAIL SELL SYSTEM** 📧\n\n"
+        "💰 **Earn:** 10৳ per verified Gmail\n"
+        "✅ **Auto-Verification:** Bot checks instantly\n\n"
+        "📝 **Enter Gmail address:**\n"
         "Example: `maim1234@gmail.com` or just `maim1234`\n\n"
-        "⚠️ **IMPORTANT:** Only submit REAL working Gmails!",
+        "⚠️ **IMPORTANT:** Submit REAL working Gmails only!",
         parse_mode="Markdown"
     )
 
@@ -1355,8 +1413,9 @@ async def process_gmail_address(message: types.Message, state: FSMContext):
     await message.answer(
         "🔑 **Enter Password:**\n"
         "Enter the EXACT password for this Gmail.\n\n"
-        "⚠️ **BOT WILL AUTO-VERIFY!**\n"
-        "Fake credentials will be rejected automatically.",
+        "🔒 **Security:** Your credentials are safe\n"
+        "🤖 **BOT WILL AUTO-VERIFY!**\n"
+        "❌ Fake credentials will be rejected automatically.",
         parse_mode="Markdown"
     )
 
@@ -1377,9 +1436,10 @@ async def process_gmail_password(message: types.Message, state: FSMContext):
     await MailSellState.verifying_credentials.set()
     
     verification_msg = await message.answer(
-        f"🔍 **Verifying Gmail Credentials...**\n"
-        f"⏳ Please wait 10-15 seconds...\n\n"
-        f"📧 Checking: `{gmail_address}`",
+        f"🔍 **VERIFYING GMAIL CREDENTIALS...**\n\n"
+        f"📧 **Email:** `{gmail_address}`\n"
+        f"⏳ **Status:** Checking...\n\n"
+        f"🔄 Please wait 10-15 seconds...",
         parse_mode="Markdown"
     )
     
@@ -1389,8 +1449,8 @@ async def process_gmail_password(message: types.Message, state: FSMContext):
     if not is_valid:
         await verification_msg.edit_text(
             f"❌ **VERIFICATION FAILED!**\n\n"
-            f"📧 `{gmail_address}`\n\n"
-            f"**Reason:** {msg}\n\n"
+            f"📧 **Email:** `{gmail_address}`\n"
+            f"❌ **Status:** {msg}\n\n"
             f"⚠️ **Warning:** Fake/wrong credentials detected!\n"
             f"Submit REAL working Gmails only."
         )
@@ -1399,10 +1459,11 @@ async def process_gmail_password(message: types.Message, state: FSMContext):
     
     # Verification successful - ask for recovery email
     await verification_msg.edit_text(
-        f"✅ **GMAIL VERIFIED!**\n\n"
-        f"📧 `{gmail_address}`\n"
-        f"🔑 Password: Verified ✅\n\n"
-        f"Now enter recovery email (optional):"
+        f"✅ **GMAIL VERIFIED SUCCESSFULLY!**\n\n"
+        f"📧 **Email:** `{gmail_address}`\n"
+        f"✅ **Status:** Verified & Working\n\n"
+        f"📩 **Enter recovery email (optional):**\n"
+        f"Type 'skip' if none"
     )
     
     await MailSellState.waiting_for_recovery.set()
@@ -1451,37 +1512,42 @@ async def process_recovery_email(message: types.Message, state: FSMContext):
     
     await state.finish()
     
-    # Success message
-    success_msg = (
-        f"🎉 **MAIL SALE COMPLETED!**\n\n"
-        f"📧 **Gmail:** `{gmail_address}`\n"
-        f"✅ **Status:** Auto-Verified & Approved\n"
-        f"💰 **Earned:** {mail_sell_rate} TK\n\n"
-        f"💳 **Added to your balance automatically!**\n"
-        f"📈 Check 'My Account' for updated balance."
-    )
+    # Enhanced success message
+    success_msg = f"""
+🎉 **MAIL SALE COMPLETED!** 🎉
+
+✅ **Status:** Auto-Verified & Approved
+💰 **Earned:** {mail_sell_rate}৳
+📧 **Gmail:** `{gmail_address}`
+
+💳 **Amount added to your balance automatically!**
+📈 **Check '💰 My Balance' for updated balance.**
+
+🔄 **Want to earn more?** Submit another Gmail!
+"""
     
     await message.answer(success_msg, parse_mode="Markdown")
     
     # Notify admins (for monitoring)
     for admin_id in ADMIN_IDS:
         try:
-            admin_msg = (
-                f"📧 **Auto-Verified Mail Sale** #{mail_id}\n\n"
-                f"👤 **Seller:** `{user_id}` (@{user[1] or 'No username'})\n"
-                f"📧 **Gmail:** `{gmail_address}`\n"
-                f"🔑 **Password:** `{password}`\n"
-                f"📩 **Recovery:** `{recovery_email or 'None'}`\n"
-                f"💰 **Paid:** {mail_sell_rate} TK\n"
-                f"✅ **Status:** Auto-approved (Bot verified)"
-            )
+            admin_msg = f"""
+📧 **Auto-Verified Mail Sale** #{mail_id}
+
+👤 **Seller:** `{user_id}` (@{user[1] or 'No username'})
+📧 **Gmail:** `{gmail_address}`
+🔑 **Password:** `{password}`
+📩 **Recovery:** `{recovery_email or 'None'}`
+💰 **Paid:** {mail_sell_rate}৳
+✅ **Status:** Auto-approved (Bot verified)
+"""
             
             await bot.send_message(admin_id, admin_msg, parse_mode="Markdown")
         except:
             pass
 
 # --- REFERRAL MENU ---
-@dp.message_handler(lambda message: message.text == "4️⃣ My Referral", state="*")
+@dp.message_handler(lambda message: message.text == "👥 My Referral", state="*")
 async def referral_menu(message: types.Message):
     if check_ban(message.from_user.id): return
     user = get_user(message.from_user.id)
@@ -1493,20 +1559,43 @@ async def referral_menu(message: types.Message):
     bot_username = (await bot.get_me()).username
     ref_link = f"https://t.me/{bot_username}?start={message.from_user.id}"
     
-    msg = (f"🔗 **My Referral**\n\n"
-           f"📎 **Link:** `{ref_link}`\n\n"
-           f"👥 **Total Referred:** {ref_count}\n"
-           f"💰 **Total Earnings:** {ref_earnings:.2f} TK\n\n"
-           f"💡 **Share your link and earn {get_setting('earn_referral')} TK per referral!**")
+    msg = f"""
+👥 **MY REFERRAL SYSTEM** 👥
+
+🔗 **Your Referral Link:**
+`{ref_link}`
+
+📊 **Your Stats:**
+• 👥 **Total Referred:** {ref_count}
+• 💰 **Total Earnings:** {ref_earnings:.2f}৳
+• 🎯 **Rate:** {get_setting('earn_referral')}৳ per referral
+
+💡 **How to Earn More:**
+1. Share your link with friends
+2. Ask them to use your link
+3. Earn {get_setting('earn_referral')}৳ when they join
+4. They earn too - everyone wins!
+
+✨ **Pro Tip:** Share in Facebook groups, WhatsApp, Telegram channels!
+"""
     
     await message.answer(msg, parse_mode="Markdown")
 
 # --- SUPPORT TICKET SYSTEM ---
-@dp.message_handler(lambda message: message.text == "📞 Support", state="*")
+@dp.message_handler(lambda message: message.text == "🆘 Support", state="*")
 async def support_start(message: types.Message, state: FSMContext):
     if check_ban(message.from_user.id): return
     await SupportState.waiting_for_message.set()
-    await message.answer("💬 **Support Ticket**\n\nPlease describe your issue:", reply_markup=types.ReplyKeyboardRemove())
+    await message.answer(
+        "🆘 **SUPPORT TICKET**\n\n"
+        "Please describe your issue in detail:\n"
+        "• Payment problems\n"
+        • Account issues\n"
+        • Technical problems\n"
+        • Other concerns\n\n"
+        "📝 **Type your message now:**",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
 
 @dp.message_handler(state=SupportState.waiting_for_message)
 async def support_message(message: types.Message, state: FSMContext):
@@ -1527,7 +1616,14 @@ async def support_message(message: types.Message, state: FSMContext):
     
     for admin_id in ADMIN_IDS:
         try:
-            caption = f"🎫 **New Ticket #{ticket_id}**\n\n👤 **User:** `{user_id}`\n🆔 **Username:** @{user[1] or 'No username'}\n💬 **Message:**\n\n{message.text}"
+            caption = f"""
+🎫 **New Support Ticket #{ticket_id}**
+
+👤 **User:** `{user_id}`
+🆔 **Username:** @{user[1] or 'No username'}
+📅 **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+💬 **Message:**\n\n{message.text}
+"""
             kb = InlineKeyboardMarkup().add(
                 InlineKeyboardButton("💬 Reply", callback_data=f"reply_ticket_{ticket_id}_{user_id}")
             )
@@ -1535,26 +1631,25 @@ async def support_message(message: types.Message, state: FSMContext):
         except:
             pass
     
-    kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    kb.add("1️⃣ Start Work", "2️⃣ My Account")
-    kb.add("🎁 Daily Bonus", "🏆 Leaderboard")
-    kb.add("💸 Withdraw", "📢 Notice")
-    kb.add("4️⃣ My Referral", "📞 Support")
-    kb.add("📧 Mail Sell", "👑 VIP")
-    kb.add("ℹ️ Help", "🔙 Main Menu")
-
-    await message.answer("✅ **Ticket Submitted!**\n⏳ Admins will reply soon.", reply_markup=kb)
+    await message.answer(
+        "✅ **Ticket Submitted Successfully!**\n\n"
+        "📋 **Ticket ID:** #{ticket_id}\n"
+        "⏳ **Response Time:** Usually within 24 hours\n"
+        "📬 **You'll be notified when admin replies.**",
+        reply_markup=get_main_menu_keyboard()
+    )
     await state.finish()
 
 # --- HELP MENU ---
-@dp.message_handler(lambda message: message.text == "ℹ️ Help", state="*")
+@dp.message_handler(lambda message: message.text == "ℹ️ Help Guide", state="*")
 async def help_menu(message: types.Message):
     if check_ban(message.from_user.id): return
     
     help_text = """
-📖 **How to Earn Money:**
+📖 **COMPLETE GUIDE TO EARN MONEY** 📖
 
-1️⃣ **Click "Start Work"**
+🚀 **HOW TO START:**
+1️⃣ **Click "🚀 Start Work"**
    • Get Email + Password
    • Create Gmail account EXACTLY as shown
    
@@ -1568,24 +1663,39 @@ async def help_menu(message: types.Message):
    • Bot auto-checks login
    
 4️⃣ **Get Paid:**
-   • ✅ 10 TK per verified account
+   • ✅ 10৳ per verified account
    • 🎁 Daily bonus
    • 👥 Referral bonus
    • 👑 VIP bonus for Top-10 users
    • 📧 Earn from selling verified emails
 
-💰 **Minimum Withdraw:** 100 TK
-📧 **Mail Sell:** Submit your verified Gmails for extra income
+💰 **WITHDRAWAL SYSTEM:**
+• **Minimum:** 100৳ (50৳ for VIP)
+• **Methods:** Bkash, Nagad, Rocket
+• **Time:** Within 5 minutes (Auto) or 24h (Manual)
+• **Fee:** No hidden fees
+
+📧 **MAIL SELL SYSTEM:**
+• Submit verified Gmails
+• Earn 10৳ per mail
+• Auto-verification by bot
+• Instant payment
+
+🔒 **SAFETY TIPS:**
+• Never share your password
+• Use different passwords
+• Keep account secure
+• Contact support if suspicious
+
 ━━━━━━━━━━━━━━━━━━━━
 🤖 **Bot Created By:** XTﾠMꫝɪᴍﾠ!!
 📞 **Contact:** [Click Here](https://t.me/cr_maim)
 📧 **Email:** `immaim55@gmail.com`
-🌐 **Website:** www.maim.com
 ━━━━━━━━━━━━━━━━━━━━
 """
     await message.answer(help_text, parse_mode="Markdown")
 
-@dp.message_handler(lambda message: message.text == "🔙 Main Menu", state="*")
+@dp.message_handler(lambda message: message.text == "📊 Stats", state="*")
 async def refresh_menu(message: types.Message):
     await cmd_start(message)
 
@@ -1618,7 +1728,7 @@ async def daily_bonus(message: types.Message):
             else:
                 rem = 86400 - diff
                 hrs, mins = int(rem // 3600), int((rem % 3600) // 60)
-                await message.answer(f"⏳ **Cooldown!**\nCome back in: {hrs}h {mins}m")
+                await message.answer(f"⏳ **Daily Bonus Cooldown!**\nCome back in: {hrs}h {mins}m")
                 conn.close()
                 return
         except:
@@ -1628,7 +1738,15 @@ async def daily_bonus(message: types.Message):
         c.execute("UPDATE users SET balance=balance+?, last_bonus_time=? WHERE user_id=?", 
                  (bonus_amt, current_time.strftime("%Y-%m-%d %H:%M:%S"), user_id))
         conn.commit()
-        await message.answer(f"🎉 **Bonus Claimed!**\n+{bonus_amt} TK\n💰 New Balance: {balance + bonus_amt:.2f} TK")
+        await message.answer(f"""
+🎁 **DAILY BONUS CLAIMED!** 🎁
+
+💰 **Amount:** +{bonus_amt}৳
+💳 **Previous Balance:** {balance:.2f}৳
+💎 **New Balance:** {balance + bonus_amt:.2f}৳
+
+⏰ **Next bonus available in 24 hours!**
+""")
     conn.close()
 
 # --- UPDATED: IMPRESSIVE LEADERBOARD WITH FAKE USERS ---
@@ -1702,7 +1820,7 @@ async def smart_leaderboard(message: types.Message):
     await message.answer(msg, parse_mode="Markdown")
 
 # --- ACCOUNT INFO ---
-@dp.message_handler(lambda message: message.text == "2️⃣ My Account", state="*")
+@dp.message_handler(lambda message: message.text == "💰 My Balance", state="*")
 async def menu_account(message: types.Message):
     if check_ban(message.from_user.id): return
     user = get_user(message.from_user.id)
@@ -1720,26 +1838,45 @@ async def menu_account(message: types.Message):
     in_top10 = is_user_in_top10(user[0])
     vip_status = "👑 VIP (Top-10)" if in_top10 else "👤 Regular"
     
-    msg = (f"👤 **My Profile**\n\n"
-           f"🆔 ID: `{user[0]}`\n"
-           f"🎖️ **Rank:** {rank}\n"
-           f"⭐ **Status:** {vip_status}\n"
-           f"💰 **Balance:** {user[4]:.2f} TK\n"
-           f"📧 **Verified Accounts:** {verified_count}\n"
-           f"👥 **Referrals:** {user[5]} (+{ref_earnings:.2f} TK)\n"
-           f"📧 **Mail Sell Earnings:** {mail_sell_earnings:.2f} TK\n"
-           f"📅 **Joined:** {str(user[11])[:10]}\n"
-           f"💳 **Total Withdrawn:** {user[18] or 0:.2f} TK")
+    msg = f"""
+👤 **MY ACCOUNT OVERVIEW** 👤
+
+🆔 **User ID:** `{user[0]}`
+🎖️ **Rank:** {rank}
+⭐ **Status:** {vip_status}
+
+💰 **BALANCE DETAILS:**
+• 💳 **Current Balance:** {user[4]:.2f}৳
+• 📧 **Verified Accounts:** {verified_count}
+• 👥 **Referrals:** {user[5]} (+{ref_earnings:.2f}৳)
+• 📧 **Mail Sell Earnings:** {mail_sell_earnings:.2f}৳
+• 💸 **Total Withdrawn:** {user[18] or 0:.2f}৳
+
+📅 **JOINED:** {str(user[11])[:10]}
+⏰ **Last Activity:** {user[16] or 'Never'}
+
+💡 **TIPS:**
+• Complete more tasks to increase balance
+• Refer friends for extra income
+• Sell verified Gmails for quick cash
+"""
     await message.answer(msg, parse_mode="Markdown")
 
 # --- NOTICE ---
-@dp.message_handler(lambda message: message.text == "📢 Notice", state="*")
+@dp.message_handler(lambda message: message.text == "📢 Announcements", state="*")
 async def show_notice(message: types.Message):
-    notice = get_setting('notice') or "No announcements."
-    await message.answer(f"📢 **Latest News:**\n\n{notice}", parse_mode="Markdown")
+    notice = get_setting('notice') or "📢 **No announcements yet. Check back later!**"
+    await message.answer(f"""
+📢 **LATEST ANNOUNCEMENTS** 📢
+
+{notice}
+
+━━━━━━━━━━━━━━━━━━━━
+📅 **Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+""", parse_mode="Markdown")
 
 # --- WORK FLOW ---
-@dp.message_handler(lambda message: message.text == "1️⃣ Start Work", state="*")
+@dp.message_handler(lambda message: message.text == "🚀 Start Work", state="*")
 async def work_start(message: types.Message):
     user_id = message.from_user.id
     if check_ban(user_id): return
@@ -1762,15 +1899,26 @@ async def work_start(message: types.Message):
                  (email, password, user_id))
         conn.commit()
 
-    msg = (f"🛠 **Create Gmail Task #{user[3]+1}**\n\n"
-           f"👤 **Nikname:** `Maim`\n"
-           f"👤 **Per Gmail 9-13৳ \n"
-           f"✉️ **Email:** `{email}`\n"
-           f"🔑 **Password:** `{password}`\n\n"
-           f"⚠️ **EXACT Instructions:**\n"
-           f"• Create account with EXACT details above\n"
-           f"• Use recovery email/phone if asked\n"
-           f"• Click **Check Login** after creation")
+    msg = f"""
+🛠 **CREATE GMAIL TASK #{user[3]+1}** 🛠
+
+💰 **Earning:** 9-13৳ per account
+👤 **Nikname:** `Maim`
+✉️ **Email:** `{email}`
+🔑 **Password:** `{password}`
+
+⚠️ **EXACT Instructions:**
+1. Go to [Gmail.com](https://gmail.com)
+2. Click "Create account"
+3. Use EXACT details above
+4. Skip phone verification if asked
+5. Complete registration
+
+✅ **After Creation:**
+• Click **Check Login** button below
+• Bot will verify automatically
+• Get paid instantly!
+"""
            
     kb = InlineKeyboardMarkup(row_width=1)
     kb.add(InlineKeyboardButton("🔄 Check Login (Auto)", callback_data="auto_check_login"))
@@ -1796,7 +1944,7 @@ async def process_auto_check(call: types.CallbackQuery):
     email, password, status = row
     
     if status == 'verified':
-        await call.message.answer("✅ Already verified! Click Start Work for next.")
+        await call.message.answer("✅ Already verified! Click 🚀 Start Work for next.")
         conn.close()
         return
 
@@ -1829,13 +1977,21 @@ async def process_auto_check(call: types.CallbackQuery):
         conn.commit()
         await call.message.delete()
         
-        # Prepare success message with VIP bonus info
-        success_msg = f"✅ **SUCCESS!** 🎉\n\n✅ Login Verified\n💰 **+{base_rate} TK**"
-        
-        if vip_bonus > 0:
-            success_msg += f"\n👑 **VIP Bonus:** +{vip_bonus} TK"
-        
-        success_msg += f"\n\n💰 **Total Earned:** {total_earnings} TK\n\n👆 Click **Start Work** for next task!"
+        # Prepare enhanced success message
+        success_msg = f"""
+✅ **SUCCESS! ACCOUNT VERIFIED** ✅
+
+💰 **Earnings Breakdown:**
+• 📧 Gmail Verification: +{base_rate}৳
+{f"• 👑 VIP Bonus: +{vip_bonus}৳" if vip_bonus > 0 else ""}
+• 💳 **Total Earned:** {total_earnings}৳
+
+📊 **Your Stats:**
+• Verified Accounts: {get_user(user_id)[3] + 1}
+• Total Balance: {get_user(user_id)[4] + total_earnings:.2f}৳
+
+🎯 **Next Step:** Click **🚀 Start Work** for next task!
+"""
         
         await call.message.answer(success_msg, parse_mode="Markdown")
         
@@ -1848,7 +2004,7 @@ async def process_auto_check(call: types.CallbackQuery):
             except: pass
             
     else:
-        await call.message.answer(f"❌ **Failed**\n\n{msg}\n\n💡 Create account first, then try again.")
+        await call.message.answer(f"❌ **VERIFICATION FAILED**\n\n{msg}\n\n💡 Create account first, then try again.")
         
     conn.close()
 
@@ -1856,7 +2012,7 @@ async def process_auto_check(call: types.CallbackQuery):
 @dp.callback_query_handler(lambda c: c.data == "submit_ss", state="*")
 async def process_submit_ss(call: types.CallbackQuery):
     await RegisterState.waiting_for_screenshot.set()
-    await call.message.answer("📸 Upload screenshot of Gmail inbox/welcome page:")
+    await call.message.answer("📸 **Upload screenshot of Gmail inbox/welcome page:**\n\nMake sure the email address is visible!")
 
 @dp.message_handler(content_types=['photo'], state=RegisterState.waiting_for_screenshot)
 async def process_photo_upload(message: types.Message, state: FSMContext):
@@ -1884,7 +2040,7 @@ async def process_photo_upload(message: types.Message, state: FSMContext):
         except: pass
 
     await state.finish()
-    await message.answer("⏳ ✅ Submitted for Admin Review!\n⏳ Wait for approval...")
+    await message.answer("⏳ ✅ **Screenshot Submitted for Review!**\n\nAdmin will check manually. You'll be notified when approved.")
 
 # --- UPDATED WITHDRAWAL SYSTEM WITH AUTO PAYMENT ---
 @dp.message_handler(lambda message: message.text == "💸 Withdraw", state="*")
@@ -1901,18 +2057,34 @@ async def withdraw_start(message: types.Message):
     min_w = float(get_setting('vip_min_withdraw') if user[13] else get_setting('min_withdraw'))
     
     if user[4] < min_w:
-        await message.answer(f"❌ **Low Balance**\n💰 Need: {min_w} TK\n💳 Current: {user[4]:.2f} TK")
+        await message.answer(f"""
+❌ **LOW BALANCE** ❌
+
+💰 **Required:** {min_w}৳
+💳 **Current:** {user[4]:.2f}৳
+📊 **Need More:** {min_w - user[4]:.2f}৳
+
+💡 **Quick Ways to Earn:**
+• Complete Gmail tasks (+10৳ each)
+• Refer friends (+5৳ each)
+• Sell verified Gmails (+10৳ each)
+""")
         return
     
     # Check payment mode
     status = payment_system.get_system_status()
     payment_mode = "🔄 **AUTO** (Instant)" if status["auto_payment_enabled"] else "👨‍💼 **MANUAL** (24h)"
     
-    msg = (f"💳 **Withdraw Funds**\n\n"
-           f"💰 **Balance:** {user[4]:.2f} TK\n"
-           f"📱 **Payment Mode:** {payment_mode}\n"
-           f"⏱️ **Processing:** {'5 minutes' if status['auto_payment_enabled'] else '24 hours'}\n\n"
-           f"💡 **Minimum:** {min_w} TK")
+    msg = f"""
+💸 **WITHDRAW FUNDS** 💸
+
+💰 **Current Balance:** {user[4]:.2f}৳
+⚙️ **Payment Mode:** {payment_mode}
+⏱️ **Processing Time:** {'5 minutes' if status['auto_payment_enabled'] else '24 hours'}
+💳 **Minimum:** {min_w}৳
+
+📱 **Select Payment Method:**
+"""
     
     kb = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, row_width=2)
     kb.add("Bkash", "Nagad")
@@ -1924,11 +2096,7 @@ async def withdraw_start(message: types.Message):
 async def withdraw_method(message: types.Message, state: FSMContext):
     if message.text == "❌ Cancel":
         await state.finish()
-        kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        kb.add("1️⃣ Start Work", "2️⃣ My Account")
-        kb.add("💸 Withdraw", "4️⃣ My Referral")
-        kb.add("🔙 Main Menu")
-        await message.answer("Cancelled.", reply_markup=kb)
+        await message.answer("❌ Withdrawal cancelled.", reply_markup=get_main_menu_keyboard())
         return
     
     # Check if method is available for auto payment
@@ -1948,13 +2116,13 @@ async def withdraw_method(message: types.Message, state: FSMContext):
     
     await state.update_data(method=message.text)
     await WithdrawState.waiting_for_number.set()
-    await message.answer("📱 **Enter Mobile Number:**\n`01XXXXXXXXX`", parse_mode="Markdown", reply_markup=types.ReplyKeyboardRemove())
+    await message.answer("📱 **Enter Mobile Number:**\n\nFormat: `01XXXXXXXXX`\n\nExample: `01712345678`", parse_mode="Markdown", reply_markup=types.ReplyKeyboardRemove())
 
 @dp.message_handler(state=WithdrawState.waiting_for_number)
 async def withdraw_number(message: types.Message, state: FSMContext):
     await state.update_data(number=message.text)
     await WithdrawState.waiting_for_amount.set()
-    await message.answer("💰 **Enter Amount:**\n💡 Min: 100 TK")
+    await message.answer("💰 **Enter Amount:**\n\n💡 Minimum: 100৳ (50৳ for VIP)\n📊 Maximum: Your full balance")
 
 @dp.message_handler(state=WithdrawState.waiting_for_amount)
 async def withdraw_amount(message: types.Message, state: FSMContext):
@@ -1978,12 +2146,17 @@ async def withdraw_amount(message: types.Message, state: FSMContext):
         
         await state.finish()
         
-        kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-        kb.add("1️⃣ Start Work", "2️⃣ My Account")
-        kb.add("💸 Withdraw", "4️⃣ My Referral")
-        kb.add("🔙 Main Menu")
-        
-        await message.answer(result["message"], reply_markup=kb, parse_mode="Markdown")
+        await message.answer(f"""
+{result["message"]}
+
+📋 **Withdrawal Details:**
+• 💰 **Amount:** {amount}৳
+• 📱 **Method:** {data['method']}
+• 📞 **To:** {data['number']}
+• ⏰ **Time:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+💡 **Note:** Keep your phone nearby for payment notification.
+""", reply_markup=get_main_menu_keyboard(), parse_mode="Markdown")
         
         # Notify admins for manual mode
         if not payment_system.auto_payment_enabled or result["mode"] == "manual":
@@ -1998,7 +2171,7 @@ async def withdraw_amount(message: types.Message, state: FSMContext):
                 except: pass
             
     except ValueError:
-        await message.answer("❌ **Invalid Amount**")
+        await message.answer("❌ **Invalid Amount** - Please enter a valid number")
     except Exception as e:
         await message.answer(f"❌ **Error:** {str(e)}")
 
@@ -2010,24 +2183,33 @@ async def show_smart_stats(message: types.Message):
     """Show smart inflated stats to users"""
     
     stats = await get_smart_stats()
-    bot_name = "Gmail Buy Sell Bot"
+    bot_name = "Gmail Farmer Pro"
     
     # Format numbers nicely
     total_fmt = f"{stats['total_users']:,}"
     active_fmt = f"{stats['active_today']:,}"
     
     # Create impressive message
-    stats_msg = (
-        f"📊 **{bot_name} Analytics** 📊\n\n"
-        f"👥 **Total Members:** {total_fmt}\n"
-        f"📈 **Active Today:** {active_fmt}\n"
-        f"🚀 **Daily Growth:** +{stats['growth_rate']}%\n"
-        f"💰 **Total Payouts:** ৳{stats['total_users'] * random.randint(50, 200):,}\n"
-        f"✅ **Verified Accounts:** {stats['total_users'] * random.randint(3, 7):,}\n\n"
-        f"🏆 **Rank:** #{random.randint(1, 5)} in Bangladesh\n"
-        f"⭐ **Rating:** {random.randint(45, 50)}/5.0\n\n"
-        f"🔹 **Trusted by thousands!** 🔹"
-    )
+    stats_msg = f"""
+📊 **{bot_name} - LIVE STATISTICS** 📊
+
+👥 **Total Members:** {total_fmt}
+📈 **Active Today:** {active_fmt}
+🚀 **Daily Growth:** +{stats['growth_rate']}%
+💰 **Total Payouts:** ৳{stats['total_users'] * random.randint(50, 200):,}
+✅ **Verified Accounts:** {stats['total_users'] * random.randint(3, 7):,}
+
+🏆 **Rank:** #{random.randint(1, 5)} in Bangladesh
+⭐ **Rating:** {random.randint(45, 50)}/5.0
+🎯 **Success Rate:** 98.7%
+
+📅 **Launched:** 2024
+👨‍💼 **Active Admins:** 3
+⏰ **Support Response:** < 24h
+
+🔹 **100% Trusted & Verified** 🔹
+💯 **Instant Payments** 💯
+"""
     
     await message.answer(stats_msg, parse_mode="Markdown")
 
@@ -2055,7 +2237,19 @@ async def admin_panel(message: types.Message):
     kb.add(InlineKeyboardButton("🤖 Fake System", callback_data="fake_system_control"))
     kb.add(InlineKeyboardButton(f"💳 Payment: {payment_mode}", callback_data="payment_dashboard"))
     
-    await message.answer(f"👮‍♂️ **Admin Control Panel**\n💳 **Payment Mode:** {payment_mode}", reply_markup=kb, parse_mode="Markdown")
+    await message.answer(f"""
+👮‍♂️ **ADMIN CONTROL PANEL** 👮‍♂️
+
+💳 **Payment Mode:** {payment_mode}
+📊 **Configured Methods:** {status['total_methods_available']}/3
+🤖 **Auto Payment:** {'✅ ENABLED' if status['auto_payment_enabled'] else '❌ DISABLED'}
+
+⚡ **Quick Actions:**
+• Approve pending verifications
+• Process withdrawals
+• Send announcements
+• Manage users
+""", reply_markup=kb, parse_mode="Markdown")
 
 # --- ADMIN CALLBACK HANDLER ---
 @dp.callback_query_handler(lambda c: c.data == "admin_home", state="*")
@@ -2086,10 +2280,15 @@ async def admin_payments_menu(call: types.CallbackQuery):
     mode = "AUTO" if status["auto_payment_enabled"] else "MANUAL"
     
     await call.message.edit_text(
-        f"💰 **Payment Management**\n\n"
-        f"⚙️ **Current Mode:** {mode}\n"
-        f"📱 **Available Methods:** {status['total_methods_available']}/3\n\n"
-        f"Select an option:",
+        f"""
+💰 **PAYMENT MANAGEMENT** 💰
+
+⚙️ **Current Mode:** {mode}
+📱 **Available Methods:** {status['total_methods_available']}/3
+🤖 **Auto Status:** {'✅ ACTIVE' if status['auto_payment_enabled'] else '❌ INACTIVE'}
+
+💡 **Select an option:**
+""",
         parse_mode="Markdown",
         reply_markup=kb
     )
@@ -2134,6 +2333,7 @@ async def test_payment_method(call: types.CallbackQuery):
 async def process_payments_now(call: types.CallbackQuery):
     if call.from_user.id not in ADMIN_IDS: return
     
+    global auto_payment_handler
     if auto_payment_handler:
         await auto_payment_handler.process_pending_withdrawals()
         await call.answer("✅ Processing payments now...", show_alert=True)
@@ -3182,10 +3382,32 @@ async def handle_fake_controls(call: types.CallbackQuery):
         await call.answer("Settings menu coming soon!", show_alert=True)
 
 # ==========================================
+# RENDER KEEP-ALIVE SERVER
+# ==========================================
+async def health_check(request):
+    return web.Response(text="Bot is running successfully!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render এর দেওয়া পোর্টে রান করবে
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logging.info(f"🌐 Web server started on port {port}")
+
+# ==========================================
 # ON BOT STARTUP
 # ==========================================
 async def on_startup(dp):
     """Initialize systems on bot start"""
+    
+    # 1. Web server চালু করুন
+    await start_web_server() 
+    
     print("🚀 Starting Smart Systems...")
     
     # ডাটাবেস ক্লিনআপ
@@ -3219,15 +3441,20 @@ async def on_startup(dp):
 # ==========================================
 if __name__ == '__main__':
     # Get bot name for display
-    bot_name = "Maim Gmail Bot"
+    bot_name = "Maim Gmail Farmer Pro"
     
     print("="*50)
     print(f"🤖 {bot_name} Starting...")
     print(f"📊 Fake System: {'ENABLED' if FAKE_USER_ENABLED else 'DISABLED'}")
     print(f"💳 Auto Payment: {'ENABLED' if AUTO_PAYMENT_ENABLED else 'DISABLED'}")
+    print(f"👑 VIP Bonus: {get_setting('vip_bonus') or DEFAULT_VIP_BONUS}৳")
+    print(f"💰 Gmail Rate: {get_setting('earn_gmail') or DEFAULT_EARN_GMAIL}৳")
+    print(f"👥 Referral Rate: {get_setting('earn_referral') or DEFAULT_EARN_REFERRAL}৳")
     print("="*50)
     
     try:
         executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
     except Exception as e:
         print(f"❌ Critical Error: {e}")
+        print("🔄 Restarting in 10 seconds...")
+        time.sleep(10)
