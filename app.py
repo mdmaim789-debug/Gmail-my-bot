@@ -1314,7 +1314,7 @@ async def cmd_start(message: types.Message):
     
     # Enhanced welcome message
     welcome_msg = """
-✨ **Welcome to Gmail Farmer Pro!** ✨
+✨ **Welcome to Gmail Buy Sell !** ✨
 
 🚀 **Earn Money Instantly:**
 • 📧 Create Gmail Accounts: 9-13৳ Each
@@ -2183,7 +2183,7 @@ async def show_smart_stats(message: types.Message):
     """Show smart inflated stats to users"""
     
     stats = await get_smart_stats()
-    bot_name = "Gmail Farmer Pro"
+    bot_name = "Gmail Buy Sell "
     
     # Format numbers nicely
     total_fmt = f"{stats['total_users']:,}"
@@ -3441,7 +3441,7 @@ async def on_startup(dp):
 # ==========================================
 if __name__ == '__main__':
     # Get bot name for display
-    bot_name = "Maim Gmail Farmer Pro"
+    bot_name = "Maim Gmail Buy Sell "
     
     print("="*50)
     print(f"🤖 {bot_name} Starting...")
