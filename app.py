@@ -3231,5 +3231,3 @@ if __name__ == '__main__':
         executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
     except Exception as e:
         print(f"❌ Critical Error: {e}")
-        
-        ey code ta render e run dile terminul e error dey bot ta run hoy na,  aiohttp er error dey.tumi seta fix kore daw, aiohttp pkg install hoy na rerminul e
