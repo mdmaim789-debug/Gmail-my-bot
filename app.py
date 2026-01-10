@@ -1590,9 +1590,9 @@ async def support_start(message: types.Message, state: FSMContext):
         "🆘 **SUPPORT TICKET**\n\n"
         "Please describe your issue in detail:\n"
         "• Payment problems\n"
-        • Account issues\n"
-        • Technical problems\n"
-        • Other concerns\n\n"
+        "• Account issues\n"
+        "• Technical problems\n"
+        "• Other concerns\n\n"
         "📝 **Type your message now:**",
         reply_markup=types.ReplyKeyboardRemove()
     )
