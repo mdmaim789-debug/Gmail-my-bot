@@ -11,6 +11,7 @@ import json
 import hashlib
 import hmac
 import base64
+import smtplib  # NEW IMPORT
 from aiohttp import web
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
@@ -1131,47 +1132,121 @@ def get_top10_bonus():
     except:
         return DEFAULT_VIP_BONUS
 
-async def verify_gmail_login(email, password):
-    try:
-        server = imaplib.IMAP4_SSL("imap.gmail.com", timeout=10)
-        await asyncio.sleep(1)
-        server.login(email, password)
-        server.logout()
-        return True, "Login Successful"
-    except imaplib.IMAP4.error as e:
-        err_msg = str(e)
-        if "AUTHENTICATIONFAILED" in err_msg or "credential" in err_msg.lower():
-            return False, "❌ Wrong Password or Email not created yet."
-        elif "Application-specific password" in err_msg:
-            return True, "Verified (2FA Alert)" 
-        else:
-            return False, f"⚠️ Google Security Block (Try again later): {err_msg}"
-    except Exception as e:
-        return False, f"⚠️ Connection Error: {str(e)}"
+# ==========================================
+# NEW REAL GMAIL VERIFICATION FUNCTIONS
+# ==========================================
 
-async def verify_gmail_credentials(email, password):
-    """Check if gmail credentials are valid"""
+async def verify_gmail_login(email, password):
+    """REAL Gmail verification with multiple methods"""
     try:
         # Clean email format
         if '@' not in email:
             email = f"{email}@gmail.com"
         
-        # IMAP login check
-        server = imaplib.IMAP4_SSL("imap.gmail.com", timeout=15)
-        server.login(email, password)
-        server.logout()
-        return True, "✅ Gmail verification successful!"
-    except imaplib.IMAP4.error as e:
-        err_msg = str(e)
-        if "AUTHENTICATIONFAILED" in err_msg:
-            return False, "❌ Wrong Gmail password or email doesn't exist"
-        elif "Application-specific password" in err_msg:
-            return False, "❌ 2FA enabled - Not accepted"
+        print(f"🔍 Verifying REAL Gmail: {email}")
+        
+        # Method 1: Try IMAP (Port 993)
+        try:
+            server = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=15)
+            server.login(email, password)
+            # Check inbox
+            server.select('INBOX')
+            # Logout
+            server.logout()
+            return True, "✅ Gmail verification successful!"
+        except imaplib.IMAP4.error as e:
+            error_msg = str(e)
+            
+            if "AUTHENTICATIONFAILED" in error_msg:
+                return False, "❌ Wrong Gmail password or email doesn't exist"
+            elif "Application-specific password" in error_msg:
+                return False, "❌ 2FA enabled - Not accepted"
+            elif "web login required" in error_msg.lower():
+                # Try alternative method
+                pass
+        
+        # Method 2: Try SMTP verification (Port 465)
+        try:
+            smtp_server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
+            smtp_server.login(email, password)
+            smtp_server.quit()
+            return True, "✅ Gmail verification successful!"
+        except smtplib.SMTPAuthenticationError:
+            return False, "❌ Authentication failed - Wrong credentials"
+        except Exception as e:
+            # Try next method
+            pass
+        
+        # Method 3: Try IMAP with port 465
+        try:
+            server = imaplib.IMAP4_SSL("imap.gmail.com", 465, timeout=10)
+            server.login(email, password)
+            server.select('INBOX')
+            server.logout()
+            return True, "✅ Gmail verification successful!"
+        except:
+            pass
+        
+        # Method 4: Try SMTP with port 587
+        try:
+            smtp_server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+            smtp_server.starttls()
+            smtp_server.login(email, password)
+            smtp_server.quit()
+            return True, "✅ Gmail verification successful!"
+        except:
+            pass
+        
+        return False, "❌ Verification failed - Try with simple password"
+        
+    except Exception as e:
+        error_msg = str(e)
+        if "timeout" in error_msg.lower():
+            return False, "❌ Connection timeout - Check internet"
+        elif "network" in error_msg.lower():
+            return False, "❌ Network error - Try again"
         else:
-            return False, f"❌ Google security block: {err_msg}"
+            return False, f"❌ Error: {error_msg}"
+
+async def verify_gmail_credentials(email, password):
+    """REAL Gmail verification for mail sell system"""
+    try:
+        # Clean email format
+        if '@' not in email:
+            email = f"{email}@gmail.com"
+        
+        print(f"🔍 Verifying for Mail Sell: {email}")
+        
+        # Method 1: Try IMAP (Port 993)
+        try:
+            server = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=15)
+            server.login(email, password)
+            server.select('INBOX')
+            server.logout()
+            return True, "✅ Gmail verification successful!"
+        except imaplib.IMAP4.error as e:
+            error_msg = str(e)
+            
+            if "AUTHENTICATIONFAILED" in error_msg:
+                return False, "❌ Wrong Gmail password or email doesn't exist"
+            elif "Application-specific password" in error_msg:
+                return False, "❌ 2FA enabled - Not accepted"
+        
+        # Method 2: Try SMTP
+        try:
+            smtp_server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
+            smtp_server.login(email, password)
+            smtp_server.quit()
+            return True, "✅ Gmail verification successful!"
+        except smtplib.SMTPAuthenticationError:
+            return False, "❌ Authentication failed - Wrong credentials"
+        except Exception as e:
+            return False, f"❌ SMTP Error: {str(e)}"
+        
+        return False, "❌ Verification failed - Check credentials"
+        
     except Exception as e:
         return False, f"❌ Connection error: {str(e)}"
-    return False, "❌ Unknown error"
 
 # ==========================================
 # PAYMENT HELPER FUNCTIONS
@@ -1927,7 +2002,7 @@ async def work_start(message: types.Message):
     await message.answer(msg, parse_mode="Markdown", reply_markup=kb)
     conn.close()
 
-# --- AUTO CHECK (UPDATED WITH VIP BONUS) ---
+# --- NEW REAL AUTO CHECK FUNCTION ---
 @dp.callback_query_handler(lambda c: c.data == "auto_check_login", state="*")
 async def process_auto_check(call: types.CallbackQuery):
     user_id = call.from_user.id
@@ -1948,6 +2023,16 @@ async def process_auto_check(call: types.CallbackQuery):
         conn.close()
         return
 
+    # Show verification in progress message
+    progress_msg = await call.message.answer(
+        f"🔍 **VERIFICATION IN PROGRESS**\n\n"
+        f"📧 Email: `{email}`\n"
+        f"⏳ Status: Checking credentials...\n\n"
+        f"⏱️ Please wait 10-20 seconds...",
+        parse_mode="Markdown"
+    )
+    
+    # Real verification
     is_valid, msg = await verify_gmail_login(email, password)
     
     if is_valid:
@@ -1975,7 +2060,12 @@ async def process_auto_check(call: types.CallbackQuery):
             c.execute("UPDATE users SET referral_paid=1 WHERE user_id=?", (user_id,))
         
         conn.commit()
-        await call.message.delete()
+        
+        # Delete progress message
+        try:
+            await progress_msg.delete()
+        except:
+            pass
         
         # Prepare enhanced success message
         success_msg = f"""
@@ -2004,7 +2094,35 @@ async def process_auto_check(call: types.CallbackQuery):
             except: pass
             
     else:
-        await call.message.answer(f"❌ **VERIFICATION FAILED**\n\n{msg}\n\n💡 Create account first, then try again.")
+        try:
+            await progress_msg.delete()
+        except:
+            pass
+        
+        error_message = f"""
+❌ **VERIFICATION FAILED**
+
+📧 **Email:** `{email}`
+🔑 **Password:** `{password}`
+
+⚠️ **Error:** {msg}
+
+🔧 **Possible Reasons:**
+1. Account not created yet
+2. Wrong email/password
+3. Google security block
+4. 2FA enabled
+
+💡 **Solution:**
+1. Create Gmail EXACTLY as shown
+2. Use correct password
+3. Complete all steps
+4. Try "Check Login" again
+
+🔄 **Try Again:** Click "Check Login" after creating account
+"""
+        
+        await call.message.answer(error_message, parse_mode="Markdown")
         
     conn.close()
 
@@ -3380,6 +3498,75 @@ async def handle_fake_controls(call: types.CallbackQuery):
     
     elif call.data == "fake_settings":
         await call.answer("Settings menu coming soon!", show_alert=True)
+
+# ==========================================
+# NEW ADMIN TEST COMMANDS
+# ==========================================
+
+@dp.message_handler(commands=['test_gmail'], state="*")
+async def test_gmail_command(message: types.Message):
+    """Test Gmail verification manually"""
+    if message.from_user.id not in ADMIN_IDS:
+        return
+    
+    args = message.text.split()
+    if len(args) != 3:
+        await message.answer("Usage: /test_gmail email password")
+        return
+    
+    email = args[1]
+    password = args[2]
+    
+    await message.answer(f"🔍 Testing: {email}")
+    
+    is_valid, msg = await verify_gmail_login(email, password)
+    
+    if is_valid:
+        await message.answer(f"✅ SUCCESS!\n\nEmail: {email}\nStatus: {msg}")
+    else:
+        await message.answer(f"❌ FAILED!\n\nEmail: {email}\nError: {msg}")
+
+@dp.message_handler(commands=['help_verify'], state="*")
+async def help_verification(message: types.Message):
+    """Help users with verification issues"""
+    
+    help_text = """
+🔧 **HOW TO FIX VERIFICATION PROBLEMS** 🔧
+
+❌ **If verification fails:**
+
+1. **Create Account Properly:**
+   • Go to gmail.com
+   • Click "Create account"
+   • Use EXACT email/password from bot
+   • Complete ALL steps
+   • Verify phone if asked (optional)
+
+2. **Password Tips:**
+   • Copy EXACT password from bot
+   • No extra spaces
+   • Case sensitive
+   • Must be 8+ characters
+
+3. **Common Solutions:**
+   • Wait 5 mins after creating account
+   • Try "Check Login" again
+   • Use simpler password if fails
+   • Disable 2FA if enabled
+
+4. **Still having issues?**
+   • Contact support: @cr_maim
+   • Provide screenshot
+   • Share error message
+
+✅ **Working Example:**
+Email: maim1234a@gmail.com
+Password: Maim@abc123
+
+📞 Support: @cr_maim
+"""
+    
+    await message.answer(help_text, parse_mode="Markdown")
 
 # ==========================================
 # RENDER KEEP-ALIVE SERVER
