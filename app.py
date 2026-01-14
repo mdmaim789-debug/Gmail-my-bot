@@ -11,7 +11,7 @@ import json
 import hashlib
 import hmac
 import base64
-import smtplib  # NEW IMPORT
+import smtplib
 from aiohttp import web
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
@@ -1095,12 +1095,30 @@ def get_user(user_id):
     return user
 
 def generate_demo_creds():
-    digits = ''.join(random.choices(string.digits, k=4))
-    char = random.choice(string.ascii_lowercase)
-    email = f"maim{digits}{char}@gmail.com"
-    pool = string.ascii_letters + string.digits
-    rand_part = ''.join(random.choices(pool, k=8))
-    password = f"Maim@{rand_part}"
+    """Generate REAL WORKING email format with strong password"""
+    # Generate random username
+    random_num = random.randint(10000, 99999)
+    random_char = random.choice(string.ascii_lowercase)
+    username = f"maim{random_num}{random_char}"
+    email = f"{username}@gmail.com"
+    
+    # Generate STRONG password (meeting Google requirements)
+    # Format: 1 uppercase, 1 lowercase, 1 number, 1 special character, 8+ length
+    uppercase = random.choice(string.ascii_uppercase)
+    lowercase = random.choice(string.ascii_lowercase)
+    digits = random.choice(string.digits)
+    special = random.choice("!@#$%^&*")
+    remaining = ''.join(random.choices(string.ascii_letters + string.digits, k=4))
+    
+    # Combine all parts
+    all_parts = [uppercase, lowercase, digits, special] + list(remaining)
+    random.shuffle(all_parts)
+    password = ''.join(all_parts)
+    
+    # Ensure minimum length
+    if len(password) < 8:
+        password += random.choice(string.ascii_letters + string.digits)
+    
     return email, password
 
 def check_ban(user_id):
@@ -1133,120 +1151,68 @@ def get_top10_bonus():
         return DEFAULT_VIP_BONUS
 
 # ==========================================
-# NEW REAL GMAIL VERIFICATION FUNCTIONS
+# UPDATED GMAIL VERIFICATION FUNCTIONS (FIXED)
 # ==========================================
 
 async def verify_gmail_login(email, password):
-    """REAL Gmail verification with multiple methods"""
+    """REAL Gmail verification with better error handling"""
     try:
         # Clean email format
         if '@' not in email:
             email = f"{email}@gmail.com"
         
-        print(f"🔍 Verifying REAL Gmail: {email}")
+        logging.info(f"🔍 Verifying Gmail: {email}")
         
-        # Method 1: Try IMAP (Port 993)
+        # First check if it's a real email format
+        if not email.endswith('@gmail.com'):
+            return False, "❌ Only @gmail.com addresses accepted!"
+        
+        # Try SMTP first (most reliable)
+        try:
+            smtp_server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15)
+            smtp_server.ehlo()
+            smtp_server.login(email, password)
+            smtp_server.quit()
+            return True, "✅ Gmail verification successful!"
+        except smtplib.SMTPAuthenticationError as e:
+            error_msg = str(e)
+            if "Application-specific password required" in error_msg:
+                return False, "❌ 2FA enabled - Cannot verify"
+            elif "Username and Password not accepted" in error_msg:
+                return False, "❌ Wrong email or password"
+            elif "Bad credentials" in error_msg:
+                return False, "❌ Invalid credentials"
+        except Exception as e:
+            # Try IMAP if SMTP fails
+            pass
+        
+        # Try IMAP as fallback
         try:
             server = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=15)
             server.login(email, password)
-            # Check inbox
             server.select('INBOX')
-            # Logout
             server.logout()
             return True, "✅ Gmail verification successful!"
         except imaplib.IMAP4.error as e:
             error_msg = str(e)
-            
             if "AUTHENTICATIONFAILED" in error_msg:
-                return False, "❌ Wrong Gmail password or email doesn't exist"
-            elif "Application-specific password" in error_msg:
-                return False, "❌ 2FA enabled - Not accepted"
-            elif "web login required" in error_msg.lower():
-                # Try alternative method
-                pass
-        
-        # Method 2: Try SMTP verification (Port 465)
-        try:
-            smtp_server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
-            smtp_server.login(email, password)
-            smtp_server.quit()
-            return True, "✅ Gmail verification successful!"
-        except smtplib.SMTPAuthenticationError:
-            return False, "❌ Authentication failed - Wrong credentials"
+                return False, "❌ Wrong Gmail password"
+            elif "invalid credentials" in error_msg.lower():
+                return False, "❌ Invalid credentials"
+            else:
+                return False, f"❌ IMAP Error: {error_msg}"
         except Exception as e:
-            # Try next method
-            pass
+            return False, f"❌ Connection error: {str(e)}"
         
-        # Method 3: Try IMAP with port 465
-        try:
-            server = imaplib.IMAP4_SSL("imap.gmail.com", 465, timeout=10)
-            server.login(email, password)
-            server.select('INBOX')
-            server.logout()
-            return True, "✅ Gmail verification successful!"
-        except:
-            pass
-        
-        # Method 4: Try SMTP with port 587
-        try:
-            smtp_server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
-            smtp_server.starttls()
-            smtp_server.login(email, password)
-            smtp_server.quit()
-            return True, "✅ Gmail verification successful!"
-        except:
-            pass
-        
-        return False, "❌ Verification failed - Try with simple password"
+        return False, "❌ Verification failed - Please check credentials"
         
     except Exception as e:
-        error_msg = str(e)
-        if "timeout" in error_msg.lower():
-            return False, "❌ Connection timeout - Check internet"
-        elif "network" in error_msg.lower():
-            return False, "❌ Network error - Try again"
-        else:
-            return False, f"❌ Error: {error_msg}"
+        logging.error(f"Gmail verification error: {e}")
+        return False, f"❌ System error: {str(e)}"
 
 async def verify_gmail_credentials(email, password):
     """REAL Gmail verification for mail sell system"""
-    try:
-        # Clean email format
-        if '@' not in email:
-            email = f"{email}@gmail.com"
-        
-        print(f"🔍 Verifying for Mail Sell: {email}")
-        
-        # Method 1: Try IMAP (Port 993)
-        try:
-            server = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=15)
-            server.login(email, password)
-            server.select('INBOX')
-            server.logout()
-            return True, "✅ Gmail verification successful!"
-        except imaplib.IMAP4.error as e:
-            error_msg = str(e)
-            
-            if "AUTHENTICATIONFAILED" in error_msg:
-                return False, "❌ Wrong Gmail password or email doesn't exist"
-            elif "Application-specific password" in error_msg:
-                return False, "❌ 2FA enabled - Not accepted"
-        
-        # Method 2: Try SMTP
-        try:
-            smtp_server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
-            smtp_server.login(email, password)
-            smtp_server.quit()
-            return True, "✅ Gmail verification successful!"
-        except smtplib.SMTPAuthenticationError:
-            return False, "❌ Authentication failed - Wrong credentials"
-        except Exception as e:
-            return False, f"❌ SMTP Error: {str(e)}"
-        
-        return False, "❌ Verification failed - Check credentials"
-        
-    except Exception as e:
-        return False, f"❌ Connection error: {str(e)}"
+    return await verify_gmail_login(email, password)
 
 # ==========================================
 # PAYMENT HELPER FUNCTIONS
@@ -1757,14 +1723,14 @@ async def help_menu(message: types.Message):
 • Instant payment
 
 🔒 **SAFETY TIPS:**
-• Never share your password
-• Use different passwords
+• Use real email/password combinations
 • Keep account secure
 • Contact support if suspicious
 
 ━━━━━━━━━━━━━━━━━━━━
-🤖 **Bot Created By:** XTﾠMꫝɪᴍﾠ!!
+🤖 **Bot Created By:** XTﾠMꫝɪᴍﾠ!!, XTﾠHᴜɴᴛᴇʀﾠ!!
 📞 **Contact:** [Click Here](https://t.me/cr_maim)
+📞 **Contact 2nd Admin:** [Click Here](https://t.me/@OWNER_HUNTER_VAI)
 📧 **Email:** `immaim55@gmail.com`
 ━━━━━━━━━━━━━━━━━━━━
 """
@@ -2002,7 +1968,7 @@ async def work_start(message: types.Message):
     await message.answer(msg, parse_mode="Markdown", reply_markup=kb)
     conn.close()
 
-# --- NEW REAL AUTO CHECK FUNCTION ---
+# --- FIXED AUTO CHECK FUNCTION ---
 @dp.callback_query_handler(lambda c: c.data == "auto_check_login", state="*")
 async def process_auto_check(call: types.CallbackQuery):
     user_id = call.from_user.id
@@ -2067,6 +2033,9 @@ async def process_auto_check(call: types.CallbackQuery):
         except:
             pass
         
+        # Get updated user data
+        user = get_user(user_id)
+        
         # Prepare enhanced success message
         success_msg = f"""
 ✅ **SUCCESS! ACCOUNT VERIFIED** ✅
@@ -2077,8 +2046,8 @@ async def process_auto_check(call: types.CallbackQuery):
 • 💳 **Total Earned:** {total_earnings}৳
 
 📊 **Your Stats:**
-• Verified Accounts: {get_user(user_id)[3] + 1}
-• Total Balance: {get_user(user_id)[4] + total_earnings:.2f}৳
+• Verified Accounts: {user[3]}
+• Total Balance: {user[4]:.2f}৳
 
 🎯 **Next Step:** Click **🚀 Start Work** for next task!
 """
@@ -3564,6 +3533,7 @@ Email: maim1234a@gmail.com
 Password: Maim@abc123
 
 📞 Support: @cr_maim
+📞 Admin 2: @OWNER_HUNTER_VAI
 """
     
     await message.answer(help_text, parse_mode="Markdown")
