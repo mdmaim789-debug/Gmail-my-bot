@@ -706,6 +706,183 @@ class PaymentAdmin:
         await call.answer()
 
 # ==========================================
+# REAL GMAIL VERIFICATION FUNCTIONS
+# ==========================================
+
+async def verify_gmail_imap(email, password):
+    """Real Gmail verification using IMAP"""
+    try:
+        # Clean email
+        if '@' not in email:
+            email = f"{email}@gmail.com"
+        
+        # Gmail format check
+        if not email.endswith('@gmail.com'):
+            return False, "❌ Only @gmail.com addresses"
+        
+        # Connect to Gmail IMAP server
+        imap_server = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+        imap_server.timeout = 15  # 15 seconds timeout
+        
+        # REAL LOGIN ATTEMPT
+        imap_server.login(email, password)  # এই লাইনেই আসল ভেরিফিকেশন হয়
+        
+        # Check inbox access
+        imap_server.select('INBOX')
+        
+        # Get email count (extra verification)
+        _, message_count = imap_server.search(None, 'ALL')
+        
+        # Logout properly
+        imap_server.close()
+        imap_server.logout()
+        
+        return True, "✅ Gmail verified successfully via IMAP"
+        
+    except imaplib.IMAP4.error as e:
+        error_msg = str(e).lower()
+        if 'authentication failed' in error_msg:
+            return False, "❌ Wrong email or password"
+        elif 'invalid credentials' in error_msg:
+            return False, "❌ Invalid credentials"
+        elif 'login failed' in error_msg:
+            return False, "❌ Login failed - Account may not exist"
+        else:
+            return False, f"❌ IMAP error: {str(e)[:100]}"
+            
+    except Exception as e:
+        return False, f"❌ Connection error: {str(e)}"
+
+async def verify_gmail_smtp(email, password):
+    """Real Gmail verification using SMTP"""
+    try:
+        # Connect to Gmail SMTP server
+        smtp_server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        smtp_server.timeout = 15
+        
+        # REAL SMTP LOGIN
+        smtp_server.login(email, password)  # এইখানে আসল চেক
+        
+        # Successfully logged in
+        smtp_server.quit()
+        
+        return True, "✅ Gmail verified successfully via SMTP"
+        
+    except smtplib.SMTPAuthenticationError:
+        return False, "❌ Authentication failed - Wrong credentials"
+    except Exception as e:
+        return False, f"❌ SMTP error: {str(e)}"
+
+def calculate_quality_score(email, password):
+    """Calculate Gmail quality (1-10) for pricing"""
+    score = 5  # Base score
+    
+    username = email.split('@')[0]
+    
+    # Email quality checks
+    if 6 <= len(username) <= 20:
+        score += 1
+    
+    if username.isalnum():  # No special chars
+        score += 1
+    
+    if username.isalpha():  # No numbers (premium)
+        score += 2
+    
+    # Password strength
+    if len(password) >= 10:
+        score += 1
+    if any(c.isupper() for c in password) and any(c.islower() for c in password):
+        score += 1  # Mixed case
+    if any(c.isdigit() for c in password):
+        score += 1  # Has numbers
+    if any(c in "!@#$%^&*" for c in password):
+        score += 1  # Has special chars
+    
+    return min(score, 10)  # Max 10
+
+def detect_fake_gmail(email):
+    """Detect fake/temporary Gmails"""
+    username = email.split('@')[0].lower()
+    
+    fake_patterns = [
+        'temp', 'fake', 'test', 'dummy', 'spam',
+        'throwaway', 'trash', '123456', '000000'
+    ]
+    
+    for pattern in fake_patterns:
+        if pattern in username:
+            return False, f"❌ {pattern} detected in email"
+    
+    # Check if too short/long
+    if len(username) < 4:
+        return False, "❌ Email username too short"
+    
+    if len(username) > 30:
+        return False, "❌ Email username too long"
+    
+    return True, "✅ Email looks genuine"
+
+async def real_gmail_verification(email, password):
+    """
+    REAL Gmail Verification - 100% Real Check
+    Returns: (success, message, quality_score)
+    """
+    
+    # Step 1: Basic validation
+    if not email or not password:
+        return False, "❌ Email or password missing", 0
+    
+    if len(password) < 6:
+        return False, "❌ Password too short (min 6 chars)", 0
+    
+    # Step 2: Anti-fake check
+    fake_check, fake_message = detect_fake_gmail(email)
+    if not fake_check:
+        return False, fake_message, 0
+    
+    # Step 3: Try IMAP first (most reliable)
+    imap_success, imap_message = await verify_gmail_imap(email, password)
+    
+    if imap_success:
+        # Calculate quality score
+        quality = calculate_quality_score(email, password)
+        return True, imap_message, quality
+    
+    # Step 4: If IMAP fails, try SMTP
+    smtp_success, smtp_message = await verify_gmail_smtp(email, password)
+    
+    if smtp_success:
+        quality = calculate_quality_score(email, password)
+        return True, smtp_message, quality
+    
+    # Step 5: Both failed - Real Gmail doesn't exist/wrong password
+    return False, "❌ Gmail verification failed. Check credentials.", 0
+
+def update_verification_stats(user_id, success, email):
+    """Track verification attempts"""
+    conn = get_db_connection()
+    c = conn.cursor()
+    
+    if success:
+        c.execute("""
+            UPDATE users SET 
+            verified_count = COALESCE(verified_count, 0) + 1,
+            last_success = ?
+            WHERE user_id = ?
+        """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    else:
+        c.execute("""
+            UPDATE users SET 
+            failed_attempts = COALESCE(failed_attempts, 0) + 1,
+            last_failure = ?
+            WHERE user_id = ?
+        """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), user_id))
+    
+    conn.commit()
+    conn.close()
+
+# ==========================================
 # DATABASE SETUP (UPDATED)
 # ==========================================
 DB_FILE = "gmailfarmer_pro.db"
@@ -771,7 +948,11 @@ def init_db():
         last_bonus_time TEXT,
         mail_sell_earnings REAL DEFAULT 0,
         total_withdrawn REAL DEFAULT 0,
-        last_withdraw_time TEXT
+        last_withdraw_time TEXT,
+        verified_count INTEGER DEFAULT 0,
+        failed_attempts INTEGER DEFAULT 0,
+        last_success TEXT,
+        last_failure TEXT
     )''')
 
     # Support Tickets Table
@@ -833,6 +1014,16 @@ def init_db():
         api_secret TEXT,
         is_active INTEGER DEFAULT 1,
         created_at TEXT
+    )''')
+    
+    # Verification Logs Table (NEW)
+    c.execute('''CREATE TABLE IF NOT EXISTS verification_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        email TEXT,
+        success INTEGER DEFAULT 0,
+        reason TEXT,
+        timestamp TEXT
     )''')
     
     # ✅ FIX: ফেক উইথড্রয়াল মুছে দিন
@@ -1094,33 +1285,6 @@ def get_user(user_id):
     conn.close()
     return user
 
-# ==========================================
-# HELPER FUNCTIONS
-# ==========================================
-
-def get_setting(key):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT value FROM settings WHERE key=?", (key,))
-    res = c.fetchone()
-    conn.close()
-    return res[0] if res else None
-
-def update_setting(key, value):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
-    conn.commit()
-    conn.close()
-
-def get_user(user_id):
-    conn = get_db_connection()
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    user = c.fetchone()
-    conn.close()
-    return user
-
 def generate_demo_creds():
     """Generate email with FIXED password for all users"""
     # Generate unique email with maim prefix
@@ -1162,70 +1326,21 @@ def get_top10_bonus():
         return float(vip_bonus) if vip_bonus else DEFAULT_VIP_BONUS
     except:
         return DEFAULT_VIP_BONUS
-        
+
 # ==========================================
-# UPDATED GMAIL VERIFICATION FUNCTIONS (FIXED)
+# UPDATED GMAIL VERIFICATION FUNCTIONS (REAL)
 # ==========================================
 
 async def verify_gmail_login(email, password):
     """REAL Gmail verification with better error handling"""
-    try:
-        # Clean email format
-        if '@' not in email:
-            email = f"{email}@gmail.com"
-        
-        logging.info(f"🔍 Verifying Gmail: {email}")
-        
-        # First check if it's a real email format
-        if not email.endswith('@gmail.com'):
-            return False, "❌ Only @gmail.com addresses accepted!"
-        
-        # Try SMTP first (most reliable)
-        try:
-            smtp_server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15)
-            smtp_server.ehlo()
-            smtp_server.login(email, password)
-            smtp_server.quit()
-            return True, "✅ Gmail verification successful!"
-        except smtplib.SMTPAuthenticationError as e:
-            error_msg = str(e)
-            if "Application-specific password required" in error_msg:
-                return False, "❌ 2FA enabled - Cannot verify"
-            elif "Username and Password not accepted" in error_msg:
-                return False, "❌ Wrong email or password"
-            elif "Bad credentials" in error_msg:
-                return False, "❌ Invalid credentials"
-        except Exception as e:
-            # Try IMAP if SMTP fails
-            pass
-        
-        # Try IMAP as fallback
-        try:
-            server = imaplib.IMAP4_SSL("imap.gmail.com", 993, timeout=15)
-            server.login(email, password)
-            server.select('INBOX')
-            server.logout()
-            return True, "✅ Gmail verification successful!"
-        except imaplib.IMAP4.error as e:
-            error_msg = str(e)
-            if "AUTHENTICATIONFAILED" in error_msg:
-                return False, "❌ Wrong Gmail password"
-            elif "invalid credentials" in error_msg.lower():
-                return False, "❌ Invalid credentials"
-            else:
-                return False, f"❌ IMAP Error: {error_msg}"
-        except Exception as e:
-            return False, f"❌ Connection error: {str(e)}"
-        
-        return False, "❌ Verification failed - Please check credentials"
-        
-    except Exception as e:
-        logging.error(f"Gmail verification error: {e}")
-        return False, f"❌ System error: {str(e)}"
+    # Use our new real verification function
+    success, message, quality = await real_gmail_verification(email, password)
+    return success, message
 
 async def verify_gmail_credentials(email, password):
     """REAL Gmail verification for mail sell system"""
-    return await verify_gmail_login(email, password)
+    success, message, quality = await real_gmail_verification(email, password)
+    return success, message
 
 # ==========================================
 # PAYMENT HELPER FUNCTIONS
@@ -1975,7 +2090,7 @@ async def work_start(message: types.Message):
 """
            
     kb = InlineKeyboardMarkup(row_width=1)
-    kb.add(InlineKeyboardButton("🔄 Check Login (Auto)", callback_data="auto_check_login"))
+    kb.add(InlineKeyboardButton("🔄 REAL Check Login", callback_data="auto_check_login"))
     kb.add(InlineKeyboardButton("📸 Screenshot (Manual)", callback_data="submit_ss"))
     
     await message.answer(msg, parse_mode="Markdown", reply_markup=kb)
@@ -1985,7 +2100,7 @@ async def work_start(message: types.Message):
 @dp.callback_query_handler(lambda c: c.data == "auto_check_login", state="*")
 async def process_auto_check(call: types.CallbackQuery):
     user_id = call.from_user.id
-    await call.answer("🔄 Verifying login...", show_alert=False)
+    await call.answer("🔄 REAL Verification starting...", show_alert=False)
     
     conn = get_db_connection()
     c = conn.cursor()
@@ -2004,22 +2119,28 @@ async def process_auto_check(call: types.CallbackQuery):
 
     # Show verification in progress message
     progress_msg = await call.message.answer(
-        f"🔍 **VERIFICATION IN PROGRESS**\n\n"
+        f"🔍 **REAL VERIFICATION IN PROGRESS**\n\n"
         f"📧 Email: `{email}`\n"
-        f"⏳ Status: Checking credentials...\n\n"
+        f"⏳ Status: Connecting to Gmail servers...\n\n"
         f"⏱️ Please wait 10-20 seconds...",
         parse_mode="Markdown"
     )
     
-    # Real verification
-    is_valid, msg = await verify_gmail_login(email, password)
+    # REAL verification
+    is_valid, msg, quality = await real_gmail_verification(email, password)
+    
+    # Update verification stats
+    update_verification_stats(user_id, is_valid, email)
     
     if is_valid:
         base_rate = float(get_setting('earn_gmail'))
         ref_rate = float(get_setting('earn_referral'))
         
+        # Quality bonus calculation
+        quality_bonus = quality * 0.1  # 10% per quality point
+        
         # Check VIP bonus
-        total_earnings = base_rate
+        total_earnings = base_rate + quality_bonus
         vip_bonus = 0
         
         if is_user_in_top10(user_id):
@@ -2051,16 +2172,18 @@ async def process_auto_check(call: types.CallbackQuery):
         
         # Prepare enhanced success message
         success_msg = f"""
-✅ **SUCCESS! ACCOUNT VERIFIED** ✅
+✅ **REAL VERIFICATION SUCCESS!** ✅
 
 💰 **Earnings Breakdown:**
 • 📧 Gmail Verification: +{base_rate}৳
+• ⭐ Quality Bonus: +{quality_bonus:.1f}৳
 {f"• 👑 VIP Bonus: +{vip_bonus}৳" if vip_bonus > 0 else ""}
-• 💳 **Total Earned:** {total_earnings}৳
+• 💳 **Total Earned:** {total_earnings:.1f}৳
 
 📊 **Your Stats:**
 • Verified Accounts: {user[3]}
 • Total Balance: {user[4]:.2f}৳
+• Gmail Quality: {quality}/10
 
 🎯 **Next Step:** Click **🚀 Start Work** for next task!
 """
@@ -2069,7 +2192,7 @@ async def process_auto_check(call: types.CallbackQuery):
         
         if LOG_CHANNEL_ID:
             try: 
-                log_msg = f"🤖 **Auto-Verified**\n👤 User: `{user_id}`\n📧 {email}\n💰 Earned: {total_earnings} TK"
+                log_msg = f"🤖 **Real Verified**\n👤 User: `{user_id}`\n📧 {email}\n💰 Earned: {total_earnings:.1f} TK\n⭐ Quality: {quality}/10"
                 if vip_bonus > 0:
                     log_msg += f" (VIP Bonus: {vip_bonus} TK)"
                 await bot.send_message(LOG_CHANNEL_ID, log_msg)
@@ -2082,7 +2205,7 @@ async def process_auto_check(call: types.CallbackQuery):
             pass
         
         error_message = f"""
-❌ **VERIFICATION FAILED**
+❌ **REAL VERIFICATION FAILED**
 
 📧 **Email:** `{email}`
 🔑 **Password:** `{password}`
@@ -2094,17 +2217,30 @@ async def process_auto_check(call: types.CallbackQuery):
 2. Wrong email/password
 3. Google security block
 4. 2FA enabled
+5. Fake/temporary email detected
 
 💡 **Solution:**
 1. Create Gmail EXACTLY as shown
 2. Use correct password
 3. Complete all steps
 4. Try "Check Login" again
+5. Use REAL Gmail only
 
 🔄 **Try Again:** Click "Check Login" after creating account
 """
         
         await call.message.answer(error_message, parse_mode="Markdown")
+        
+        # Log failed attempt
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO verification_logs 
+            (user_id, email, success, reason, timestamp) 
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, email, 0, msg, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        conn.commit()
+        conn.close()
         
     conn.close()
 
@@ -2859,6 +2995,10 @@ async def admin_callbacks(call: types.CallbackQuery):
         c.execute("SELECT COUNT(*) FROM withdrawals WHERE status='paid' AND auto_payment=1")
         auto_withdrawals = c.fetchone()[0] or 0
         
+        # Get verification stats
+        c.execute("SELECT COUNT(*) FROM verification_logs WHERE success=1")
+        real_verified = c.fetchone()[0] or 0
+        
         conn.close()
         
         stats = (f"📈 **Stats**\n"
@@ -2866,7 +3006,7 @@ async def admin_callbacks(call: types.CallbackQuery):
                  f"👻 Fake Users: {fake_count}\n"
                  f"📊 Total Shown: {real_count + fake_count}\n"
                  f"💰 Total Balance: {total_balance or 0:.2f} TK\n"
-                 f"✅ Verified Accounts: {verified}\n"
+                 f"✅ Real Verified Accounts: {real_verified}\n"
                  f"🔗 Referrals: {total_refs or 0}\n"
                  f"📧 Auto-Verified Mails: {mail_sales}\n"
                  f"💵 Mail Sales Earnings: {mail_earnings:.2f} TK\n"
@@ -3501,12 +3641,12 @@ async def test_gmail_command(message: types.Message):
     
     await message.answer(f"🔍 Testing: {email}")
     
-    is_valid, msg = await verify_gmail_login(email, password)
+    success, message_text, quality = await real_gmail_verification(email, password)
     
-    if is_valid:
-        await message.answer(f"✅ SUCCESS!\n\nEmail: {email}\nStatus: {msg}")
+    if success:
+        await message.answer(f"✅ SUCCESS!\n\nEmail: {email}\nQuality: {quality}/10\nStatus: {message_text}")
     else:
-        await message.answer(f"❌ FAILED!\n\nEmail: {email}\nError: {msg}")
+        await message.answer(f"❌ FAILED!\n\nEmail: {email}\nError: {message_text}")
 
 @dp.message_handler(commands=['help_verify'], state="*")
 async def help_verification(message: types.Message):
