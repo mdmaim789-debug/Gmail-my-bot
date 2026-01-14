@@ -1094,30 +1094,43 @@ def get_user(user_id):
     conn.close()
     return user
 
+# ==========================================
+# HELPER FUNCTIONS
+# ==========================================
+
+def get_setting(key):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT value FROM settings WHERE key=?", (key,))
+    res = c.fetchone()
+    conn.close()
+    return res[0] if res else None
+
+def update_setting(key, value):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+    conn.commit()
+    conn.close()
+
+def get_user(user_id):
+    conn = get_db_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+    user = c.fetchone()
+    conn.close()
+    return user
+
 def generate_demo_creds():
-    """Generate REAL WORKING email format with strong password"""
-    # Generate random username
+    """Generate email with FIXED password for all users"""
+    # Generate unique email with maim prefix
     random_num = random.randint(10000, 99999)
     random_char = random.choice(string.ascii_lowercase)
     username = f"maim{random_num}{random_char}"
     email = f"{username}@gmail.com"
     
-    # Generate STRONG password (meeting Google requirements)
-    # Format: 1 uppercase, 1 lowercase, 1 number, 1 special character, 8+ length
-    uppercase = random.choice(string.ascii_uppercase)
-    lowercase = random.choice(string.ascii_lowercase)
-    digits = random.choice(string.digits)
-    special = random.choice("!@#$%^&*")
-    remaining = ''.join(random.choices(string.ascii_letters + string.digits, k=4))
-    
-    # Combine all parts
-    all_parts = [uppercase, lowercase, digits, special] + list(remaining)
-    random.shuffle(all_parts)
-    password = ''.join(all_parts)
-    
-    # Ensure minimum length
-    if len(password) < 8:
-        password += random.choice(string.ascii_letters + string.digits)
+    # FIXED PASSWORD FOR ALL USERS - MaImZ@#89
+    password = "MaImZ@#89"
     
     return email, password
 
@@ -1149,7 +1162,7 @@ def get_top10_bonus():
         return float(vip_bonus) if vip_bonus else DEFAULT_VIP_BONUS
     except:
         return DEFAULT_VIP_BONUS
-
+        
 # ==========================================
 # UPDATED GMAIL VERIFICATION FUNCTIONS (FIXED)
 # ==========================================
